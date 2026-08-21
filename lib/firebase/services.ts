@@ -16,6 +16,7 @@ import {
   writeBatch,
   increment,
 } from "firebase/firestore";
+import { deleteField, arrayRemove } from "firebase/firestore";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -255,6 +256,19 @@ export async function assignRestaurantRole(
       throw new Error(data.message || "Failed to assign role");
     }
 
+    // Server route only writes manager_uids — record the join date client-side
+    // so it can be shown on the managers dashboard.
+    if (role === "restaurant_manager" && data.uid) {
+      try {
+        await updateDoc(doc(db, "restaurants", restaurantId), {
+          [`manager_assigned_at.${data.uid}`]: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error("Failed to record manager_assigned_at:", e);
+        // non-fatal — the assignment itself already succeeded
+      }
+    }
+
     return {
       success: true,
       message: data.message,
@@ -322,6 +336,7 @@ export async function unassignRestaurantManager(
 
   await updateDoc(restaurantRef, {
     manager_uids: managerUids.filter((id) => id !== managerUid),
+    [`manager_assigned_at.${managerUid}`]: deleteField(),
     updated_at: new Date(),
   });
 
@@ -331,6 +346,7 @@ export async function unassignRestaurantManager(
     await updateDoc(userRef, {
       managed_restaurant: null,
       updated_at: new Date(),
+      roles: arrayRemove("restaurant_manager"),
     });
   }
 }

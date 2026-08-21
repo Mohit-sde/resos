@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, UserPlus, Mail, Activity, AlertCircle, AlertTriangle } from "lucide-react";
+import {
+  Users,
+  UserPlus,
+  Mail,
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  MoreVertical,
+  UserMinus,
+  Calendar,
+} from "lucide-react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -15,6 +25,7 @@ import {
   getQueries,
   getRestaurant,
   computeRoleForRestaurant,
+  unassignRestaurantManager,
 } from "@/lib/firebase/services";
 import { useAuth } from "@/context/AuthContext";
 import toast from "react-hot-toast";
@@ -245,6 +256,150 @@ function InviteManagerModal({
   );
 }
 
+// "use client";
+
+// import { useState, useEffect } from "react";
+// import {
+//   Users,
+//   UserPlus,
+//   Mail,
+//   Activity,
+//   AlertCircle,
+//   AlertTriangle,
+//   MoreVertical,
+//   UserMinus,
+//   Calendar,
+// } from "lucide-react";
+// import { DashboardShell } from "@/components/layout/DashboardShell";
+// import { Button } from "@/components/ui/Button";
+// import { Modal } from "@/components/ui/Modal";
+// import { Input } from "@/components/ui/Input";
+// import { Badge } from "@/components/ui/Badge";
+// import { EmptyState } from "@/components/ui/EmptyState";
+// import { CardSkeleton } from "@/components/ui/Loading";
+// import {
+//   getManagersByRestaurant,
+//   assignRestaurantRole,
+//   unassignRestaurantManager,
+//   getQueries,
+//   getRestaurant,
+//   computeRoleForRestaurant,
+// } from "@/lib/firebase/services";
+// import { useAuth } from "@/context/AuthContext";
+// import toast from "react-hot-toast";
+// import type { AppUser, CustomerQuery, Restaurant } from "@/lib/types";
+
+// ─── join-date formatting ────────────────────────────────────────────────
+function formatJoinDate(value: unknown): string {
+  if (!value) return "—";
+  let d: Date;
+  if (value instanceof Date) d = value;
+  else if (typeof value === "string") d = new Date(value);
+  else if (typeof value === "object" && value !== null && "seconds" in (value as any)) {
+    d = new Date((value as any).seconds * 1000);
+  } else {
+    return "—";
+  }
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/* ... InviteManagerModal stays exactly as you had it ... */
+
+// ─── per-card actions menu ─────────────────────────────────────────────
+interface ManagerActionsMenuProps {
+  isDualRole: boolean;
+  onRemove: () => void;
+}
+
+function ManagerActionsMenu({ isDualRole, onRemove }: ManagerActionsMenuProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        aria-label="Manager actions"
+      >
+        <MoreVertical className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <>
+          {/* click-outside catcher */}
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg border border-gray-100 shadow-lg z-20 py-1">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onRemove();
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <UserMinus className="w-4 h-4" />
+              {isDualRole ? "Step down as manager" : "Remove as manager"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── confirm-remove modal ──────────────────────────────────────────────
+interface ConfirmRemoveTarget {
+  uid: string;
+  email: string;
+  name: string;
+  isDualRole: boolean;
+}
+
+function ConfirmRemoveModal({
+  target,
+  onClose,
+  onConfirm,
+  loading,
+}: {
+  target: ConfirmRemoveTarget | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  loading: boolean;
+}) {
+  if (!target) return null;
+  return (
+    <Modal
+      open={!!target}
+      onClose={onClose}
+      title={target.isDualRole ? "Step down as manager" : "Remove manager"}
+      description={target.isDualRole ? "You'll remain admin for this restaurant" : "They'll lose manager access to this restaurant"}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" loading={loading} onClick={onConfirm}>
+            {target.isDualRole ? "Step down" : "Remove"}
+          </Button>
+        </>
+      }
+    >
+      <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex gap-3">
+        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <div className="text-sm text-amber-900">
+          <p>
+            <strong>{target.name || target.email}</strong> will lose their manager role at this
+            restaurant. Any queries already assigned to them stay on record but won't route to
+            them going forward.
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function AdminManagersPage() {
   const { appUser } = useAuth();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -252,6 +407,8 @@ export default function AdminManagersPage() {
   const [queries, setQueries] = useState<CustomerQuery[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<ConfirmRemoveTarget | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const restaurantId = appUser?.managed_restaurant ?? "";
 
@@ -259,8 +416,6 @@ export default function AdminManagersPage() {
     if (!restaurantId) return;
     setLoading(true);
     try {
-      // 3 reads total: restaurant doc (x2 — one via getManagersByRestaurant,
-      // one direct — see note below), managers query, queries query.
       const [restaurantDoc, managerList, q] = await Promise.all([
         getRestaurant(restaurantId),
         getManagersByRestaurant(restaurantId),
@@ -288,6 +443,24 @@ export default function AdminManagersPage() {
       open: assigned.filter((q) => q.status === "OPEN" || q.status === "IN_PROGRESS").length,
       resolved: assigned.filter((q) => q.status === "RESOLVED" || q.status === "CLOSED").length,
     };
+  }
+
+  async function handleConfirmRemove() {
+    if (!confirmRemove) return;
+    setRemoving(true);
+    try {
+      await unassignRestaurantManager(restaurantId, confirmRemove.uid, confirmRemove.email);
+      toast.success(
+        confirmRemove.isDualRole ? "Stepped down as manager" : "Manager removed"
+      );
+      setConfirmRemove(null);
+      reload();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to remove manager";
+      toast.error(msg);
+    } finally {
+      setRemoving(false);
+    }
   }
 
   return (
@@ -330,40 +503,61 @@ export default function AdminManagersPage() {
             const isSelf = appUser?.email === m.email;
             const effectiveRole = restaurant ? computeRoleForRestaurant(restaurant, m.uid) : "restaurant_manager";
             const isDualRole = effectiveRole === "admin_and_manager";
+            const joinDate = restaurant?.manager_assigned_at?.[m.uid] ?? (m as any).created_at;
 
             return (
               <div key={m.uid} className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold">
-                    {m.email.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900 truncate">
-                        {m.name || m.email.split("@")[0]}
-                      </p>
-                      {isSelf && (
-                        <Badge variant="success" dot>
-                          You
-                        </Badge>
-                      )}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold flex-shrink-0">
+                      {m.email.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-xs text-gray-400 truncate flex items-center gap-1">
-                      <Mail className="w-3 h-3" />
-                      {m.email}
-                    </p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-gray-900 truncate">
+                          {m.name || m.email.split("@")[0]}
+                        </p>
+                        {isSelf && (
+                          <Badge variant="success" dot>
+                            You
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 truncate flex items-center gap-1">
+                        <Mail className="w-3 h-3" />
+                        {m.email}
+                      </p>
+                    </div>
                   </div>
+
+                  <ManagerActionsMenu
+                    isDualRole={isDualRole}
+                    onRemove={() =>
+                      setConfirmRemove({
+                        uid: m.uid,
+                        email: m.email,
+                        name: m.name || m.email,
+                        isDualRole,
+                      })
+                    }
+                  />
                 </div>
-                <>
-                {isDualRole ? (
-                  <Badge variant="warning" dot>
-                    Admin & Manager
-                  </Badge>
-                ) : (<Badge variant="info" dot>
-                    Manager
-                  </Badge>)}
-                </>
-                
+
+                <div className="flex items-center justify-between">
+                  {isDualRole ? (
+                    <Badge variant="warning" dot>
+                      Admin & Manager
+                    </Badge>
+                  ) : (
+                    <Badge variant="info" dot>
+                      Manager
+                    </Badge>
+                  )}
+                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    Since {formatJoinDate(joinDate)}
+                  </span>
+                </div>
 
                 <div className="grid grid-cols-3 gap-2">
                   {[
@@ -399,6 +593,13 @@ export default function AdminManagersPage() {
         restaurantId={restaurantId}
         currentUserEmail={appUser?.email ?? ""}
         onInvited={reload}
+      />
+
+      <ConfirmRemoveModal
+        target={confirmRemove}
+        onClose={() => setConfirmRemove(null)}
+        onConfirm={handleConfirmRemove}
+        loading={removing}
       />
     </DashboardShell>
   );

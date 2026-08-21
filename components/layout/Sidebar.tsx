@@ -99,15 +99,15 @@ function getNavItems(appUser: AppUser, cartCount?: number): NavItem[] {
 }
 
 function getRoleLabel(appUser: AppUser): string {
-  if (appUser.role === "root_admin") return "Root admin";
+  if (appUser.role === "root_admin") return "Root Admin";
   if (appUser.role === "customer") return "Customer";
 
   const roles = appUser.roles ?? [];
   const isAdmin = roles.includes("restaurant_admin");
   const isManager = roles.includes("restaurant_manager");
 
-  if (isAdmin && isManager) return "Admin & Manager";
-  if (isAdmin) return "Restaurant admin";
+  if (isAdmin && isManager) return "Super Admin";
+  if (isAdmin) return "Restaurant Admin";
   if (isManager) return "Manager";
   return "";
 }
