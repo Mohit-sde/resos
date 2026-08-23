@@ -16,7 +16,7 @@ import {
   EmailAuthProvider,
   deleteUser,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';dawdawd
 
 const AuthContext = createContext();
 
@@ -28,15 +28,13 @@ export const useAuth = () => {
   return context;
 };
 
-const DEFAULT_ROLE = 'user';
-
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [appUser, setAppUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // ─── Build the base user doc shape ───────────────────────────────────────
-  const buildUserDoc = (user, role = DEFAULT_ROLE, additionalData = {}) => ({
+  const buildUserDoc = (user, additionalData = {}) => ({
     email: user.email,
     name: additionalData.name || user.displayName || '',
     age: additionalData.age ?? null,
@@ -47,7 +45,6 @@ export const AuthProvider = ({ children }) => {
     cart: [],
     address: additionalData.address || '',
     paymentMethods: [],
-    role, // Role comes from parameter, not hardcoded email mapping
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -61,13 +58,11 @@ export const AuthProvider = ({ children }) => {
       await updateProfile(user, { displayName: additionalData.name });
     }
 
-    // Use role from additionalData or default to 'user'
-    const role = additionalData.role || DEFAULT_ROLE;
     const userDocRef = doc(db, 'realtime-users', user.email);
-    await setDoc(userDocRef, buildUserDoc(user, role, additionalData));
+    await setDoc(userDocRef, buildUserDoc(user, additionalData));
 
     // Immediately set appUser so we don't wait for onAuthStateChanged
-    setAppUser(buildUserDoc(user, role, additionalData));
+    setAppUser(buildUserDoc(user, additionalData));
     return userCredential;
   };
 
@@ -85,8 +80,8 @@ export const AuthProvider = ({ children }) => {
     const userDoc = await getDoc(userDocRef);
 
     if (!userDoc.exists()) {
-      // First-time Google sign-in — create their profile doc with default 'user' role
-      await setDoc(userDocRef, buildUserDoc(user, DEFAULT_ROLE));
+      // First-time Google sign-in — create their profile doc
+      await setDoc(userDocRef, buildUserDoc(user));
     }
     // If doc exists, ensureUserDoc will load it
 
@@ -173,11 +168,11 @@ export const AuthProvider = ({ children }) => {
         const userDocRef = doc(db, 'realtime-users', user.email);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists()) {
-          // User doc exists — use its role as-is (no hardcoded overrides)
+          // User doc exists — use it as-is (no hardcoded overrides)
           setAppUser(userDoc.data());
         } else {
           // New user, shouldn't happen in normal flow but handle it
-          const defaultUserDoc = buildUserDoc(user, DEFAULT_ROLE);
+          const defaultUserDoc = buildUserDoc(user);
           await setDoc(userDocRef, defaultUserDoc);
           setAppUser(defaultUserDoc);
         }
