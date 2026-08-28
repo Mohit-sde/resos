@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { UtensilsCrossed, MapPin, Phone, Clock, ShoppingCart, Leaf, Flame, Search, Star } from "lucide-react";
 import { getRestaurantBySlug, getMenuProducts } from "@/lib/firebase/services";
@@ -103,6 +103,36 @@ function MiniCart({ onCheckout }: { onCheckout: () => void }) {
   );
 }
 
+// ─── Product Section Component (No hooks inside map) ────────────────────────────
+interface ProductSectionProps {
+  category: string;
+  items: MenuProduct[] | undefined;
+  restaurant: Restaurant | null;
+  onAddToCart: (p: MenuProduct) => void;
+}
+
+function ProductSection({ category, items, restaurant, onAddToCart }: ProductSectionProps) {
+  const safeItems = items || [];
+  
+  return (
+    <section key={category}>
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide">{category}</h2>
+        <span className="text-xs text-gray-400">({safeItems.length})</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {safeItems.map((p) => (
+          <PublicProductCard 
+            key={p.product_id} 
+            product={p}
+            onAdd={restaurant?.is_open ? onAddToCart : () => toast.error("Restaurant is closed")} 
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 export default function RestaurantSlugPage() {
   const params = useParams();
@@ -113,7 +143,7 @@ export default function RestaurantSlugPage() {
   const { setActiveRestaurant } = useRestaurant();
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [products, setProducts] = useState<MenuProduct[]>([]);
+  const [products, setProducts] = useState<Array<MenuProduct>>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [search, setSearch] = useState("");
@@ -122,18 +152,39 @@ export default function RestaurantSlugPage() {
 
   useEffect(() => {
     if (!slug) return;
-    getRestaurantBySlug(slug).then(async (r) => {
-      if (!r) { setNotFound(true); setLoading(false); return; }
-      setRestaurant(r);
-      setActiveRestaurant(r);
-      setRestaurantId(r.restaurant_id);
-      const prods = await getMenuProducts(r.restaurant_id);
-      setProducts(prods);
-      setLoading(false);
-    }).catch(() => { setNotFound(true); setLoading(false); });
+    
+    const fetchRestaurantAndProducts = async () => {
+      try {
+        setLoading(true);
+        const r = await getRestaurantBySlug(slug);
+        
+        if (!r) {
+          setNotFound(true);
+          setLoading(false);
+          return;
+        }
+        
+        setRestaurant(r);
+        setActiveRestaurant(r);
+        setRestaurantId(r.restaurant_id);
+        
+        const prods = await getMenuProducts(r.restaurant_id);
+        
+        // Ensure products is always an array
+        const safeProducts = Array.isArray(prods) ? prods : [];
+        setProducts(safeProducts);
+      } catch (error) {
+        console.error("Error fetching restaurant data:", error);
+        setNotFound(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRestaurantAndProducts();
   }, [slug]);
 
-  function handleAddToCart(product: MenuProduct) {
+  const handleAddToCart = useCallback((product: MenuProduct) => {
     addItem({
       product_id: product.product_id,
       name: product.name,
@@ -144,8 +195,46 @@ export default function RestaurantSlugPage() {
       discount_percent: product.discount_percent,
     });
     toast.success(`${product.name} added!`);
-  }
+  }, [addItem]);
 
+  // ─── Derived data with safety checks ─────────────────────────────────────────
+  // ✅ MOVED BEFORE EARLY RETURNS to comply with Rules of Hooks
+  const categories = useMemo(() => {
+    const safeProducts = Array.isArray(products) ? products : [];
+    const catSet = new Set<string>();
+    safeProducts.forEach((p) => {
+      if (p.category) catSet.add(p.category);
+    });
+    return ["ALL", ...Array.from(catSet).sort()];
+  }, [products]);
+
+  const filtered = useMemo(() => {
+    const safeProducts = Array.isArray(products) ? products : [];
+    return safeProducts
+      .filter((p) => p.is_available)
+      .filter((p) => categoryFilter === "ALL" || p.category === categoryFilter)
+      .filter((p) => vegFilter === "ALL" || (vegFilter === "VEG" ? p.is_veg : !p.is_veg))
+      .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()));
+  }, [products, categoryFilter, vegFilter, search]);
+
+  const grouped = useMemo(() => {
+    const result: Record<string, MenuProduct[]> = {};
+    const safeFiltered = Array.isArray(filtered) ? filtered : [];
+    
+    safeFiltered.forEach((p) => {
+      const cat = p.category || "Unknown";
+      if (!result[cat]) {
+        result[cat] = [];
+      }
+      result[cat].push(p);
+    });
+    
+    return result;
+  }, [filtered]);
+
+  const brandColor = restaurant?.branding?.primary_color ?? "#ea580c";
+
+  // ✅ NOW safe to return early
   if (loading) return <PageLoader />;
 
   if (notFound) return (
@@ -158,22 +247,6 @@ export default function RestaurantSlugPage() {
       />
     </div>
   );
-
-  // Derived data
-  const categories = ["ALL", ...new Set(products.map((p) => p.category))];
-  const filtered = products
-    .filter((p) => p.is_available)
-    .filter((p) => categoryFilter === "ALL" || p.category === categoryFilter)
-    .filter((p) => vegFilter === "ALL" || (vegFilter === "VEG" ? p.is_veg : !p.is_veg))
-    .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()));
-
-  const grouped = filtered.reduce((acc, p) => {
-    if (!acc[p.category]) acc[p.category] = [];
-    acc[p.category].push(p);
-    return acc;
-  }, {} as Record<string, MenuProduct[]>);
-
-  const brandColor = restaurant?.branding?.primary_color ?? "#ea580c";
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
@@ -244,7 +317,7 @@ export default function RestaurantSlugPage() {
             ))}
             <div className="w-px h-4 bg-gray-200 flex-shrink-0" />
             {/* Category pills */}
-            {categories.map((c) => (
+            {Array.isArray(categories) && categories.map((c) => (
               <button key={c} onClick={() => setCategoryFilter(c)}
                 className={cn(
                   "flex-shrink-0 px-3 py-1 rounded-lg text-xs font-medium transition-colors",
@@ -267,23 +340,21 @@ export default function RestaurantSlugPage() {
         )}
 
         {Object.keys(grouped).length === 0 ? (
-          <EmptyState icon={<Search className="w-6 h-6" />}
+          <EmptyState 
+            icon={<Search className="w-6 h-6" />}
             title="No dishes found"
-            description="Try adjusting your filters." />
+            description="Try adjusting your filters or this restaurant has no products yet."
+          />
         ) : (
+          // ─── FIXED: Using external component to avoid hooks in map ───────
           Object.entries(grouped).map(([category, items]) => (
-            <section key={category}>
-              <div className="flex items-center gap-2 mb-3">
-                <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide">{category}</h2>
-                <span className="text-xs text-gray-400">({items.length})</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {items.map((p) => (
-                  <PublicProductCard key={p.product_id} product={p}
-                    onAdd={restaurant?.is_open ? handleAddToCart : () => toast.error("Restaurant is closed")} />
-                ))}
-              </div>
-            </section>
+            <ProductSection
+              key={category}
+              category={category}
+              items={items}
+              restaurant={restaurant}
+              onAddToCart={handleAddToCart}
+            />
           ))
         )}
       </div>
