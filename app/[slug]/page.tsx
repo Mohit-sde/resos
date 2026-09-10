@@ -2,19 +2,32 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { UtensilsCrossed, MapPin, Phone, Clock, ShoppingCart, Leaf, Flame, Search, Star } from "lucide-react";
-import { getRestaurantBySlug, getMenuProducts } from "@/lib/firebase/services";
+import {
+  UtensilsCrossed,
+  MapPin,
+  Clock,
+  ShoppingCart,
+  Leaf,
+  Flame,
+  Search,
+  Star,
+} from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { useRestaurant } from "@/context/RestaurantContext";
+import { getRestaurantBySlug, getMenuProducts } from "@/lib/firebase/services";
+import { restaurantSessionManager } from "@/lib/utils/restaurantSessionManager";
+import { RestaurantLoginModal } from "@/components/restaurant/RestaurantLoginModal";
 import { formatCurrency, discountedPrice, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { PageLoader, CardSkeleton } from "@/components/ui/Loading";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Sidebar } from "@/components/layout/Sidebar";
 import toast from "react-hot-toast";
 import type { Restaurant, MenuProduct } from "@/lib/types";
 
-// ─── Public Product Card (no auth needed) ──────────────────────────────────────
+// ─── Public Product Card ──────────────────────────────────────────────────
 function PublicProductCard({
   product,
   onAdd,
@@ -26,22 +39,37 @@ function PublicProductCard({
   const hasDiscount = product.discount_percent > 0;
 
   return (
-    <div className={cn(
-      "bg-white rounded-xl border border-gray-100 overflow-hidden flex flex-col hover:shadow-md transition-shadow",
-      !product.is_available && "opacity-60"
-    )}>
+    <div
+      className={cn(
+        "bg-white rounded-xl border border-gray-100 overflow-hidden flex flex-col hover:shadow-md transition-shadow",
+        !product.is_available && "opacity-60"
+      )}
+    >
       <div className="relative h-36 bg-gray-100">
         {product.image_url ? (
-          <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+          <img
+            src={product.image_url}
+            alt={product.name}
+            className="w-full h-full object-cover"
+          />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-4xl">🍽️</div>
+          <div className="absolute inset-0 flex items-center justify-center text-4xl">
+            🍽️
+          </div>
         )}
         <div className="absolute top-2 left-2">
-          <span className={cn(
-            "w-5 h-5 rounded border-2 flex items-center justify-center bg-white",
-            product.is_veg ? "border-green-600" : "border-red-600"
-          )}>
-            <span className={cn("w-2 h-2 rounded-full", product.is_veg ? "bg-green-600" : "bg-red-600")} />
+          <span
+            className={cn(
+              "w-5 h-5 rounded border-2 flex items-center justify-center bg-white",
+              product.is_veg ? "border-green-600" : "border-red-600"
+            )}
+          >
+            <span
+              className={cn(
+                "w-2 h-2 rounded-full",
+                product.is_veg ? "bg-green-600" : "bg-red-600"
+              )}
+            />
           </span>
         </div>
         {hasDiscount && (
@@ -55,7 +83,9 @@ function PublicProductCard({
 
       <div className="p-4 flex flex-col flex-1 gap-2">
         <div className="flex-1">
-          <h3 className="text-sm font-semibold text-gray-900">{product.name}</h3>
+          <h3 className="text-sm font-semibold text-gray-900">
+            {product.name}
+          </h3>
           <p className="text-xs text-gray-400 mt-0.5">{product.category}</p>
           {product.description && (
             <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">
@@ -69,12 +99,21 @@ function PublicProductCard({
         </div>
         <div className="flex items-center justify-between pt-2 border-t border-gray-50">
           <div>
-            <span className="text-base font-bold text-gray-900">{formatCurrency(finalPrice)}</span>
+            <span className="text-base font-bold text-gray-900">
+              {formatCurrency(finalPrice)}
+            </span>
             {hasDiscount && (
-              <span className="ml-1.5 text-xs text-gray-400 line-through">{formatCurrency(product.price)}</span>
+              <span className="ml-1.5 text-xs text-gray-400 line-through">
+                {formatCurrency(product.price)}
+              </span>
             )}
           </div>
-          <Button size="sm" variant="primary" disabled={!product.is_available} onClick={() => onAdd(product)}>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={!product.is_available}
+            onClick={() => onAdd(product)}
+          >
             {product.is_available ? "Add" : "N/A"}
           </Button>
         </div>
@@ -83,16 +122,18 @@ function PublicProductCard({
   );
 }
 
-// ─── Mini cart drawer ──────────────────────────────────────────────────────────
+// ─── Mini cart drawer ──────────────────────────────────────────────────────
 function MiniCart({ onCheckout }: { onCheckout: () => void }) {
-  const { items, totalItems, subtotal, removeItem, updateQty } = useCart();
+  const { items, totalItems, subtotal } = useCart();
   if (totalItems === 0) return null;
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-sm px-4">
       <div className="bg-gray-900 text-white rounded-2xl shadow-2xl p-4 flex items-center gap-4">
         <div className="flex-1">
-          <p className="text-sm font-semibold">{totalItems} item{totalItems !== 1 ? "s" : ""} in cart</p>
+          <p className="text-sm font-semibold">
+            {totalItems} item{totalItems !== 1 ? "s" : ""} in cart
+          </p>
           <p className="text-xs text-gray-300">{formatCurrency(subtotal)}</p>
         </div>
         <Button variant="primary" size="sm" onClick={onCheckout}>
@@ -103,7 +144,7 @@ function MiniCart({ onCheckout }: { onCheckout: () => void }) {
   );
 }
 
-// ─── Product Section Component (No hooks inside map) ────────────────────────────
+// ─── Product Section Component ────────────────────────────────────────────
 interface ProductSectionProps {
   category: string;
   items: MenuProduct[] | undefined;
@@ -111,21 +152,32 @@ interface ProductSectionProps {
   onAddToCart: (p: MenuProduct) => void;
 }
 
-function ProductSection({ category, items, restaurant, onAddToCart }: ProductSectionProps) {
+function ProductSection({
+  category,
+  items,
+  restaurant,
+  onAddToCart,
+}: ProductSectionProps) {
   const safeItems = items || [];
-  
+
   return (
     <section key={category}>
       <div className="flex items-center gap-2 mb-3">
-        <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide">{category}</h2>
+        <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide">
+          {category}
+        </h2>
         <span className="text-xs text-gray-400">({safeItems.length})</span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {safeItems.map((p) => (
-          <PublicProductCard 
-            key={p.product_id} 
+          <PublicProductCard
+            key={p.product_id}
             product={p}
-            onAdd={restaurant?.is_open ? onAddToCart : () => toast.error("Restaurant is closed")} 
+            onAdd={
+              restaurant?.is_open
+                ? onAddToCart
+                : () => toast.error("Restaurant is closed")
+            }
           />
         ))}
       </div>
@@ -133,57 +185,118 @@ function ProductSection({ category, items, restaurant, onAddToCart }: ProductSec
   );
 }
 
-// ─── Page ──────────────────────────────────────────────────────────────────────
+// ─── Main Page Component ──────────────────────────────────────────────────
 export default function RestaurantSlugPage() {
   const params = useParams();
   const router = useRouter();
   const slug = params?.slug as string;
 
+  // Auth & context
+  const { currentUser } = useAuth();
   const { addItem, setRestaurantId } = useCart();
   const { setActiveRestaurant } = useRestaurant();
 
+  // Local state
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [products, setProducts] = useState<Array<MenuProduct>>([]);
+  const [products, setProducts] = useState<MenuProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [vegFilter, setVegFilter] = useState<"ALL" | "VEG" | "NON_VEG">("ALL");
 
+  // Auth flow state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // ─── 1. Fetch restaurant & validate slug ──────────────────────────────────
   useEffect(() => {
     if (!slug) return;
-    
-    const fetchRestaurantAndProducts = async () => {
+
+    const fetchRestaurant = async () => {
       try {
         setLoading(true);
         const r = await getRestaurantBySlug(slug);
-        
+
         if (!r) {
           setNotFound(true);
           setLoading(false);
+          setAuthChecked(true);
           return;
         }
-        
+
         setRestaurant(r);
-        setActiveRestaurant(r);
-        setRestaurantId(r.restaurant_id);
-        
-        const prods = await getMenuProducts(r.restaurant_id);
-        
-        // Ensure products is always an array
-        const safeProducts = Array.isArray(prods) ? prods : [];
-        setProducts(safeProducts);
       } catch (error) {
-        console.error("Error fetching restaurant data:", error);
+        console.error("Error fetching restaurant:", error);
         setNotFound(true);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchRestaurantAndProducts();
+    fetchRestaurant();
   }, [slug]);
 
+  // ─── 2. Check authentication status ────────────────────────────────────────
+  // ─── 2. Check authentication status ────────────────────────────────────────
+useEffect(() => {
+  if (!restaurant) return;
+
+  // Check if restaurant-specific session exists for current user
+  const hasSession = restaurantSessionManager.hasValidSession(
+    restaurant.restaurant_id
+  );
+
+  if (hasSession && currentUser?.uid) {
+    // Validate session user matches current Firebase user
+    const isValid = restaurantSessionManager.validateSessionUser(
+      restaurant.restaurant_id,
+      currentUser.uid
+    );
+
+    if (isValid) {
+      // ✅ Valid session for this restaurant
+      setIsAuthenticated(true);
+      setShowLoginModal(false);
+    } else {
+      // ❌ Session exists but for different user - clear and show modal
+      restaurantSessionManager.clearSession(restaurant.restaurant_id);
+      setIsAuthenticated(false);
+      setShowLoginModal(true);
+    }
+  } else {
+    // ❌ No session for this restaurant - treat as new user
+    // (Even if globally authenticated)
+    setIsAuthenticated(false);
+    setShowLoginModal(true);
+  }
+
+  setAuthChecked(true);
+}, [restaurant, currentUser]);
+
+  // ─── 3. Fetch products (only if restaurant exists) ────────────────────────
+  useEffect(() => {
+    if (!restaurant || !isAuthenticated) return;
+
+    const fetchProducts = async () => {
+      try {
+        const prods = await getMenuProducts(restaurant.restaurant_id);
+        const safeProducts = Array.isArray(prods) ? prods : [];
+        setProducts(safeProducts);
+
+        // Set cart & restaurant context
+        setRestaurantId(restaurant.restaurant_id);
+        setActiveRestaurant(restaurant);
+      } catch (error) {
+        console.error("Error fetching products:", error);
+      }
+    };
+
+    fetchProducts();
+  }, [restaurant, isAuthenticated]);
+
+  // ─── Handlers ──────────────────────────────────────────────────────────────
   const handleAddToCart = useCallback((product: MenuProduct) => {
     addItem({
       product_id: product.product_id,
@@ -197,8 +310,12 @@ export default function RestaurantSlugPage() {
     toast.success(`${product.name} added!`);
   }, [addItem]);
 
-  // ─── Derived data with safety checks ─────────────────────────────────────────
-  // ✅ MOVED BEFORE EARLY RETURNS to comply with Rules of Hooks
+  const handleLoginSuccess = () => {
+    setShowLoginModal(false);
+    setIsAuthenticated(true);
+  };
+
+  // ─── Derived data ──────────────────────────────────────────────────────────
   const categories = useMemo(() => {
     const safeProducts = Array.isArray(products) ? products : [];
     const catSet = new Set<string>();
@@ -220,7 +337,7 @@ export default function RestaurantSlugPage() {
   const grouped = useMemo(() => {
     const result: Record<string, MenuProduct[]> = {};
     const safeFiltered = Array.isArray(filtered) ? filtered : [];
-    
+
     safeFiltered.forEach((p) => {
       const cat = p.category || "Unknown";
       if (!result[cat]) {
@@ -228,139 +345,210 @@ export default function RestaurantSlugPage() {
       }
       result[cat].push(p);
     });
-    
+
     return result;
   }, [filtered]);
 
   const brandColor = restaurant?.branding?.primary_color ?? "#ea580c";
 
-  // ✅ NOW safe to return early
-  if (loading) return <PageLoader />;
+  // ─── Early returns ───────────────────────────────────────────────────────
+  if (loading || !authChecked) return <PageLoader />;
 
-  if (notFound) return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <EmptyState
-        icon={<UtensilsCrossed className="w-6 h-6" />}
-        title="Restaurant not found"
-        description={`No restaurant found for "${slug}". Check the URL and try again.`}
-        action={<Button variant="secondary" onClick={() => router.push("/")}>Go home</Button>}
-      />
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-gray-50 pb-28">
-      {/* Hero header */}
-      <div className="relative" style={{ backgroundColor: brandColor }}>
-        <div className="absolute inset-0 opacity-20"
-          style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")" }}
+  if (notFound) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <EmptyState
+          icon={<UtensilsCrossed className="w-6 h-6" />}
+          title="Restaurant not found"
+          description={`No restaurant found for "${slug}". Check the URL and try again.`}
+          action={
+            <Button variant="secondary" onClick={() => router.push("/")}>
+              Go home
+            </Button>
+          }
         />
-        <div className="relative max-w-4xl mx-auto px-4 pt-8 pb-10">
-          <div className="flex items-center gap-4">
-            {restaurant?.branding?.logo_url ? (
-              <img src={restaurant.branding.logo_url} alt="logo"
-                className="w-16 h-16 rounded-2xl object-cover bg-white/20 flex-shrink-0" />
-            ) : (
-              <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center flex-shrink-0">
-                <UtensilsCrossed className="w-8 h-8 text-white" />
-              </div>
-            )}
-            <div>
-              <h1 className="text-2xl font-bold text-white">{restaurant?.business_name}</h1>
-              <div className="flex items-center gap-3 mt-1 flex-wrap">
-                <Badge className="bg-white/20 text-white border-0">
-                  <Star className="w-3 h-3 fill-white" /> 4.2
-                </Badge>
-                {restaurant?.cuisine_type && (
-                  <span className="text-white/80 text-sm">{restaurant.cuisine_type}</span>
+      </div>
+    );
+  }
+
+  if (!restaurant) return <PageLoader />;
+
+  // ─── Main layout ──────────────────────────────────────────────────────────
+  return (
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar - show only when authenticated */}
+      {isAuthenticated && (
+        <div className="hidden sm:block flex-shrink-0">
+          <Sidebar />
+        </div>
+      )}
+
+      {/* Main content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="min-h-screen pb-28">
+          {/* Hero header */}
+          <div className="relative" style={{ backgroundColor: brandColor }}>
+            <div
+              className="absolute inset-0 opacity-20"
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")",
+              }}
+            />
+            <div className="relative max-w-4xl mx-auto px-4 pt-8 pb-10">
+              <div className="flex items-center gap-4">
+                {restaurant?.branding?.logo_url ? (
+                  <img
+                    src={restaurant.branding.logo_url}
+                    alt="logo"
+                    className="w-16 h-16 rounded-2xl object-cover bg-white/20 flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                    <UtensilsCrossed className="w-8 h-8 text-white" />
+                  </div>
                 )}
-                <span className={cn(
-                  "text-xs font-semibold px-2 py-0.5 rounded-full",
-                  restaurant?.is_open ? "bg-green-400 text-green-900" : "bg-red-300 text-red-900"
-                )}>
-                  {restaurant?.is_open ? "● Open" : "● Closed"}
-                </span>
+                <div>
+                  <h1 className="text-2xl font-bold text-white">
+                    {restaurant?.business_name}
+                  </h1>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
+                    <Badge className="bg-white/20 text-white border-0">
+                      <Star className="w-3 h-3 fill-white" /> 4.2
+                    </Badge>
+                    {restaurant?.cuisine_type && (
+                      <span className="text-white/80 text-sm">
+                        {restaurant.cuisine_type}
+                      </span>
+                    )}
+                    <span
+                      className={cn(
+                        "text-xs font-semibold px-2 py-0.5 rounded-full",
+                        restaurant?.is_open
+                          ? "bg-green-400 text-green-900"
+                          : "bg-red-300 text-red-900"
+                      )}
+                    >
+                      {restaurant?.is_open ? "● Open" : "● Closed"}
+                    </span>
+                  </div>
+                  {restaurant?.address && (
+                    <p className="text-white/70 text-xs mt-1 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5" />
+                      {restaurant.address}
+                    </p>
+                  )}
+                </div>
               </div>
-              {restaurant?.address && (
-                <p className="text-white/70 text-xs mt-1 flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" />{restaurant.address}
-                </p>
-              )}
             </div>
           </div>
+
+          {/* Filters bar */}
+          {isAuthenticated && (
+            <div className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm">
+              <div className="max-w-4xl mx-auto px-4 py-3 space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input
+                    placeholder="Search dishes…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full h-9 pl-9 pr-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+                    style={
+                      { "--tw-ring-color": brandColor } as React.CSSProperties
+                    }
+                  />
+                </div>
+                <div className="flex gap-2 items-center overflow-x-auto pb-1">
+                  {(["ALL", "VEG", "NON_VEG"] as const).map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setVegFilter(f)}
+                      className={cn(
+                        "flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors",
+                        vegFilter === f
+                          ? "text-white border-transparent"
+                          : "bg-white text-gray-600 border-gray-200"
+                      )}
+                      style={vegFilter === f ? { backgroundColor: brandColor } : {}}
+                    >
+                      {f === "VEG" && <Leaf className="w-3 h-3" />}
+                      {f === "NON_VEG" && <Flame className="w-3 h-3" />}
+                      {f === "ALL" ? "All" : f === "VEG" ? "Veg" : "Non-veg"}
+                    </button>
+                  ))}
+                  <div className="w-px h-4 bg-gray-200 flex-shrink-0" />
+                  {Array.isArray(categories) &&
+                    categories.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setCategoryFilter(c)}
+                        className={cn(
+                          "flex-shrink-0 px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                          categoryFilter === c
+                            ? "text-white"
+                            : "bg-gray-100 text-gray-600"
+                        )}
+                        style={
+                          categoryFilter === c
+                            ? { backgroundColor: brandColor }
+                            : {}
+                        }
+                      >
+                        {c}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Menu content */}
+          {isAuthenticated && (
+            <div className="max-w-4xl mx-auto px-4 py-6 space-y-8">
+              {!restaurant?.is_open && (
+                <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 text-center">
+                  This restaurant is currently closed. You can browse the menu
+                  but ordering is disabled.
+                </div>
+              )}
+
+              {Object.keys(grouped).length === 0 ? (
+                <EmptyState
+                  icon={<Search className="w-6 h-6" />}
+                  title="No dishes found"
+                  description="Try adjusting your filters or this restaurant has no products yet."
+                />
+              ) : (
+                Object.entries(grouped).map(([category, items]) => (
+                  <ProductSection
+                    key={category}
+                    category={category}
+                    items={items}
+                    restaurant={restaurant}
+                    onAddToCart={handleAddToCart}
+                  />
+                ))
+              )}
+            </div>
+          )}
         </div>
-      </div>
 
-      {/* Filters bar */}
-      <div className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-3 space-y-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-            <input placeholder="Search dishes…" value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full h-9 pl-9 pr-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:border-transparent"
-              style={{ "--tw-ring-color": brandColor } as React.CSSProperties} />
-          </div>
-          <div className="flex gap-2 items-center overflow-x-auto pb-1">
-            {/* Veg toggle */}
-            {(["ALL", "VEG", "NON_VEG"] as const).map((f) => (
-              <button key={f} onClick={() => setVegFilter(f)}
-                className={cn(
-                  "flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors",
-                  vegFilter === f ? "text-white border-transparent" : "bg-white text-gray-600 border-gray-200"
-                )}
-                style={vegFilter === f ? { backgroundColor: brandColor } : {}}>
-                {f === "VEG" && <Leaf className="w-3 h-3" />}
-                {f === "NON_VEG" && <Flame className="w-3 h-3" />}
-                {f === "ALL" ? "All" : f === "VEG" ? "Veg" : "Non-veg"}
-              </button>
-            ))}
-            <div className="w-px h-4 bg-gray-200 flex-shrink-0" />
-            {/* Category pills */}
-            {Array.isArray(categories) && categories.map((c) => (
-              <button key={c} onClick={() => setCategoryFilter(c)}
-                className={cn(
-                  "flex-shrink-0 px-3 py-1 rounded-lg text-xs font-medium transition-colors",
-                  categoryFilter === c ? "text-white" : "bg-gray-100 text-gray-600"
-                )}
-                style={categoryFilter === c ? { backgroundColor: brandColor } : {}}>
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Menu content */}
-      <div className="max-w-4xl mx-auto px-4 py-6 space-y-8">
-        {!restaurant?.is_open && (
-          <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700 text-center">
-            This restaurant is currently closed. You can browse the menu but ordering is disabled.
-          </div>
-        )}
-
-        {Object.keys(grouped).length === 0 ? (
-          <EmptyState 
-            icon={<Search className="w-6 h-6" />}
-            title="No dishes found"
-            description="Try adjusting your filters or this restaurant has no products yet."
-          />
-        ) : (
-          // ─── FIXED: Using external component to avoid hooks in map ───────
-          Object.entries(grouped).map(([category, items]) => (
-            <ProductSection
-              key={category}
-              category={category}
-              items={items}
-              restaurant={restaurant}
-              onAddToCart={handleAddToCart}
-            />
-          ))
+        {/* Floating cart bar */}
+        {isAuthenticated && (
+          <MiniCart onCheckout={() => router.push("/cart")} />
         )}
       </div>
 
-      {/* Floating cart bar */}
-      <MiniCart onCheckout={() => router.push("/cart")} />
+      {/* Login Modal */}
+      {restaurant && (
+        <RestaurantLoginModal
+          restaurant={restaurant}
+          isOpen={showLoginModal}
+          onSuccess={handleLoginSuccess}
+          onClose={() => setShowLoginModal(false)}
+        />
+      )}
     </div>
   );
 }

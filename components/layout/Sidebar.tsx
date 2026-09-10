@@ -19,14 +19,15 @@ import {
   ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { logoutUser } from "@/lib/firebase/services";
+import { logoutUser, getRestaurantBySlug } from "@/lib/firebase/services";
 import { useNavigationLoading } from "../../lib/hooks/useNavigation";
 import { LoadingOverlay } from "../ui/LoadingOverlay";
-import type { AppUser } from "@/lib/types";
+import type { AppUser, Restaurant } from "@/lib/types";
 import toast from "react-hot-toast";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { restaurantSessionManager } from "@/lib/utils/restaurantSessionManager";
 
 interface NavItem {
   href: string;
@@ -36,9 +37,6 @@ interface NavItem {
 }
 
 // ─── Per-role nav item groups ──────────────────────────────────────────────
-// Each group points at routes that already exist as real page.tsx files.
-// Combining groups for a dual-role user is just concatenating these arrays —
-// no new pages, no duplicated components.
 
 const ROOT_ADMIN_ITEMS: NavItem[] = [
   { href: "/root-admin", label: "Restaurants", icon: <Store className="w-4 h-4" /> },
@@ -59,31 +57,103 @@ const RESTAURANT_MANAGER_ITEMS: NavItem[] = [
   { href: "/restaurant-manager/orders", label: "Orders", icon: <ShoppingBag className="w-4 h-4" /> },
 ];
 
-function getCustomerItems(cartCount?: number): NavItem[] {
-  return [
-    { href: "/menu", label: "Menu", icon: <MenuSquare className="w-4 h-4" /> },
-    {
-      href: "/cart",
-      label: "Cart",
-      icon: <ShoppingCart className="w-4 h-4" />,
-      badge: cartCount && cartCount > 0 ? cartCount : undefined,
-    },
-    { href: "/orders", label: "Order history", icon: <History className="w-4 h-4" /> },
-    { href: "/queries", label: "My queries", icon: <MessageSquare className="w-4 h-4" /> },
-    { href: "/profile", label: "Profile", icon: <User className="w-4 h-4" /> },
-  ];
+// ─── CUSTOMER ROUTES (shown on /restaurant/{slug} and profile pages) ───────
+
+const CUSTOMER_ITEMS: NavItem[] = [
+  { href: "/menu", label: "Menu", icon: <MenuSquare className="w-4 h-4" /> },
+  { href: "/cart", label: "Cart", icon: <ShoppingCart className="w-4 h-4" /> },
+  { href: "/orders", label: "Order history", icon: <History className="w-4 h-4" /> },
+  { href: "/queries", label: "My queries", icon: <MessageSquare className="w-4 h-4" /> },
+  { href: "/profile", label: "Profile", icon: <User className="w-4 h-4" /> },
+];
+
+/**
+ * Detect if current route is a restaurant-specific page
+ * Returns the restaurant slug if on /restaurant/{slug}, or null
+ */
+function getRestaurantSlugFromPathname(pathname: string): string | null {
+  const match = pathname.match(/^\/([^/]+)$/);
+  return match ? match[1] : null;
 }
 
 /**
- * root_admin / customer are global (not restaurant-scoped) and still live
- * on appUser.role. restaurant_admin / restaurant_manager come from
- * appUser.roles[] instead — a dual-role user gets BOTH groups concatenated,
- * so their sidebar lists admin pages first, then manager pages, all
- * pointing at routes that already exist.
+ * Get restaurant name based on context
+ * For customers: fetch from slug
+ * For admin/manager: fetch from appUser.managed_restaurant
  */
-function getNavItems(appUser: AppUser, cartCount?: number): NavItem[] {
+async function getRestaurantNameForSidebar(
+  appUser: AppUser,
+  pathname: string
+): Promise<string | null> {
+  const slug = getRestaurantSlugFromPathname(pathname);
+
+  // Customer on restaurant page: fetch by slug
+  if (slug && appUser.role === "customer") {
+    try {
+      const restaurant = await getRestaurantBySlug(slug);
+      return restaurant?.business_name || null;
+    } catch (error) {
+      console.error("Error fetching restaurant by slug:", error);
+      return null;
+    }
+  }
+
+  // Admin/Manager: get from managed_restaurant in appUser
+  if (appUser.role !== "customer" && appUser.managed_restaurant) {
+    try {
+      const restaurant = await getRestaurantById(appUser.managed_restaurant);
+      return restaurant?.business_name || null;
+    } catch (error) {
+      console.error("Error fetching restaurant by ID:", error);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Helper to fetch restaurant by ID
+ */
+async function getRestaurantById(
+  restaurantId: string
+): Promise<Restaurant | null> {
+  try {
+    const { getDoc, doc } = await import("firebase/firestore");
+    const { db } = await import("@/lib/firebase/config");
+    const snap = await getDoc(doc(db, "restaurants", restaurantId));
+    return snap.exists() ? (snap.data() as Restaurant) : null;
+  } catch (error) {
+    console.error("Error fetching restaurant by ID:", error);
+    return null;
+  }
+}
+
+/**
+ * Get nav items based on user role and current route
+ * When on /restaurant/{slug}, show ONLY customer items
+ */
+function getNavItems(
+  appUser: AppUser,
+  cartCount: number,
+  isOnRestaurantPage: boolean
+): NavItem[] {
+  // If on restaurant page, ALWAYS show customer routes only
+  if (isOnRestaurantPage) {
+    return [
+      ...CUSTOMER_ITEMS,
+      { href: "/cart", label: "Cart", icon: <ShoppingCart className="w-4 h-4" />, badge: cartCount > 0 ? cartCount : undefined },
+    ];
+  }
+
   if (appUser.role === "root_admin") return ROOT_ADMIN_ITEMS;
-  if (appUser.role === "customer") return getCustomerItems(cartCount);
+  if (appUser.role === "customer") {
+    return CUSTOMER_ITEMS.map((item) =>
+      item.href === "/cart"
+        ? { ...item, badge: cartCount > 0 ? cartCount : undefined }
+        : item
+    );
+  }
 
   const roles = appUser.roles ?? [];
   const isAdmin = roles.includes("restaurant_admin");
@@ -98,7 +168,8 @@ function getNavItems(appUser: AppUser, cartCount?: number): NavItem[] {
   return [];
 }
 
-function getRoleLabel(appUser: AppUser): string {
+function getRoleLabel(appUser: AppUser, isOnRestaurantPage: boolean): string {
+  // if (isOnRestaurantPage) return "Customer";
   if (appUser.role === "root_admin") return "Root Admin";
   if (appUser.role === "customer") return "Customer";
 
@@ -123,13 +194,38 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const { totalItems } = useCart();
   const { isPending, push } = useNavigationLoading();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [restaurantName, setRestaurantName] = useState<string | null>(null);
+  const [loadingRestaurant, setLoadingRestaurant] = useState(false);
 
   if (!appUser) return null;
 
-  const navItems = getNavItems(appUser, totalItems);
-  const roleLabel = getRoleLabel(appUser);
+  // Fetch restaurant name based on context
+  useEffect(() => {
+    const fetchRestaurantName = async () => {
+      setLoadingRestaurant(true);
+      try {
+        const name = await getRestaurantNameForSidebar(appUser, pathname);
+        setRestaurantName(name);
+      } finally {
+        setLoadingRestaurant(false);
+      }
+    };
+
+    fetchRestaurantName();
+  }, [appUser, pathname]);
+
+  const isOnRestaurantPage = getRestaurantSlugFromPathname(pathname) !== null;
+  const navItems = getNavItems(appUser, totalItems, isOnRestaurantPage);
+  const roleLabel = getRoleLabel(appUser, isOnRestaurantPage);
+  
+  // Display restaurant name if available, else fallback to "RestaurantOS"
+  const displayName = restaurantName || "RestaurantOS";
 
   async function handleLogout() {
+    // Clear all restaurant sessions on logout
+    const { restaurantSessionManager } = await import("@/lib/utils/restaurantSessionManager");
+    restaurantSessionManager.clearAllSessions();
+    
     await logoutUser();
     router.push("/login");
     toast.success("Logged out");
@@ -143,10 +239,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           isExpanded ? "lg:w-[20vw] w-[80vw]" : "w-16"
         )}
       >
-        {/* Header - Logo Section with Expand/Collapse Toggle */}
+        {/* Header - Logo Section */}
         <div className="h-14 flex items-center px-3 border-b border-gray-800 flex-shrink-0 overflow-hidden">
           {isExpanded ? (
-            // Expanded: Logo on left, collapse icon on right
             <div className="flex items-center justify-between w-full gap-2 min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
@@ -154,14 +249,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-white truncate">
-                    RestaurantOS
+                    {loadingRestaurant ? "Loading..." : displayName}
                   </p>
                   <p className="text-xs text-gray-500 truncate">
                     {roleLabel}
                   </p>
                 </div>
               </div>
-              {/* Collapse Icon - Right aligned */}
               <div className="relative group flex-shrink-0">
                 <button
                   onClick={() => setIsExpanded(false)}
@@ -177,7 +271,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               </div>
             </div>
           ) : (
-            // Collapsed: Only expand icon centered
             <div className="relative group w-full flex justify-center">
               <button
                 onClick={() => setIsExpanded(true)}
@@ -241,7 +334,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                     </>
                   )}
 
-                  {/* Badge position when collapsed */}
                   {item.badge !== undefined && !isExpanded && (
                     <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
                       {item.badge > 9 ? "9+" : item.badge}
@@ -249,7 +341,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                   )}
                 </button>
 
-                {/* Tooltip on hover when collapsed */}
                 {!isExpanded && (
                   <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-50">
                     {item.label}
@@ -276,7 +367,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               {isExpanded && <span className="truncate">Log out</span>}
             </button>
 
-            {/* Tooltip for logout when collapsed */}
             {!isExpanded && (
               <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-50">
                 Log out
@@ -291,7 +381,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </div>
           )}
 
-          {/* User Profile Badge when collapsed */}
           {!isExpanded && (
             <div className="mt-2 flex justify-center relative group">
               <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-xs font-semibold text-white cursor-default flex-shrink-0">
