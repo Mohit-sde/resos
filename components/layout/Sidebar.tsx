@@ -58,6 +58,7 @@ const RESTAURANT_MANAGER_ITEMS: NavItem[] = [
 ];
 
 // ─── CUSTOMER ROUTES (shown on /restaurant/{slug} and profile pages) ───────
+// Note: Cart badge is added dynamically in getNavItems()
 
 const CUSTOMER_ITEMS: NavItem[] = [
   { href: "/menu", label: "Menu", icon: <MenuSquare className="w-4 h-4" /> },
@@ -69,9 +70,30 @@ const CUSTOMER_ITEMS: NavItem[] = [
 
 /**
  * Detect if current route is a restaurant-specific page
- * Returns the restaurant slug if on /restaurant/{slug}, or null
+ * Returns the restaurant slug if on /{slug}, or null
+ * Excludes admin/manager routes
  */
 function getRestaurantSlugFromPathname(pathname: string): string | null {
+  // Exclude admin/manager/auth routes
+  const excludedPrefixes = [
+    "/restaurant-admin",
+    "/restaurant-manager",
+    "/restaurant-superadmin",
+    "/root-admin",
+    "/login",
+    "/menu",
+    "/cart",
+    "/orders",
+    "/queries",
+    "/profile",
+    "/api",
+  ];
+
+  if (excludedPrefixes.some((prefix) => pathname.startsWith(prefix))) {
+    return null;
+  }
+
+  // Match /{slug} pattern (e.g., /simla-sweets)
   const match = pathname.match(/^\/([^/]+)$/);
   return match ? match[1] : null;
 }
@@ -140,10 +162,11 @@ function getNavItems(
 ): NavItem[] {
   // If on restaurant page, ALWAYS show customer routes only
   if (isOnRestaurantPage) {
-    return [
-      ...CUSTOMER_ITEMS,
-      { href: "/cart", label: "Cart", icon: <ShoppingCart className="w-4 h-4" />, badge: cartCount > 0 ? cartCount : undefined },
-    ];
+    return CUSTOMER_ITEMS.map((item) =>
+      item.href === "/cart"
+        ? { ...item, badge: cartCount > 0 ? cartCount : undefined }
+        : item
+    );
   }
 
   if (appUser.role === "root_admin") return ROOT_ADMIN_ITEMS;
@@ -169,7 +192,7 @@ function getNavItems(
 }
 
 function getRoleLabel(appUser: AppUser, isOnRestaurantPage: boolean): string {
-  // if (isOnRestaurantPage) return "Customer";
+  if (isOnRestaurantPage) return "Ordering";
   if (appUser.role === "root_admin") return "Root Admin";
   if (appUser.role === "customer") return "Customer";
 
@@ -197,10 +220,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const [restaurantName, setRestaurantName] = useState<string | null>(null);
   const [loadingRestaurant, setLoadingRestaurant] = useState(false);
 
-  if (!appUser) return null;
-
   // Fetch restaurant name based on context
   useEffect(() => {
+    if (!appUser) return;
+
     const fetchRestaurantName = async () => {
       setLoadingRestaurant(true);
       try {
@@ -214,6 +237,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     fetchRestaurantName();
   }, [appUser, pathname]);
 
+  if (!appUser) return null;
+
   const isOnRestaurantPage = getRestaurantSlugFromPathname(pathname) !== null;
   const navItems = getNavItems(appUser, totalItems, isOnRestaurantPage);
   const roleLabel = getRoleLabel(appUser, isOnRestaurantPage);
@@ -222,13 +247,18 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const displayName = restaurantName || "RestaurantOS";
 
   async function handleLogout() {
-    // Clear all restaurant sessions on logout
-    const { restaurantSessionManager } = await import("@/lib/utils/restaurantSessionManager");
-    restaurantSessionManager.clearAllSessions();
-    
-    await logoutUser();
-    router.push("/login");
-    toast.success("Logged out");
+    try {
+      // Firebase Auth logout is GLOBAL - clears auth for all restaurants
+      // So we must clear ALL restaurant sessions to avoid stale sessions
+      restaurantSessionManager.clearAllSessions();
+      
+      await logoutUser();
+      router.push("/login");
+      toast.success("Logged out");
+    } catch (error) {
+      console.error("Logout error:", error);
+      toast.error("Logout failed");
+    }
   }
 
   return (
