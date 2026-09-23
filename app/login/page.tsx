@@ -1,18 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import {getPostLoginDestination} from "@/lib/routing/routing";
-
-// Match the redirects to your actual route structure
-const ROLE_REDIRECTS = {
-  root_admin: "/root-admin",
-  restaurant_admin: "/restaurant-admin",
-  restaurant_manager: "/restaurant-manager",
-  customer: "/menu",
-  user: "/menu",
-};
+import { getPostLoginDestination } from "@/lib/routing/routing";
+import { isValidReturnTo } from "@/lib/auth/stable-urls";
 
 export default function LoginPage() {
   const {
@@ -24,9 +16,16 @@ export default function LoginPage() {
     resetPassword,
   } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Get query params
+  const returnTo = searchParams.get("returnTo");
+  const emailParam = searchParams.get("email");
+  const validReturnTo = isValidReturnTo(returnTo) ? returnTo : null;
 
   const [mode, setMode] = useState("signin");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(emailParam || "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
@@ -36,13 +35,16 @@ export default function LoginPage() {
   const [infoMessage, setInfoMessage] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Redirect based on role once auth is settled
-useEffect(() => {
-  if (!authLoading && appUser) {
-    const destination = getPostLoginDestination(appUser);
-    router.push(destination);
-  }
-}, [authLoading, appUser, router]);
+  // ─── Redirect after successful login ───────────────────────────────────
+  useEffect(() => {
+    if (pathname !== "/login") return; // Guard: only redirect if on /login page
+
+    if (!authLoading && appUser) {
+      // Use returnTo if valid, otherwise use role-based destination
+      const destination = getPostLoginDestination(appUser, validReturnTo);
+      router.push(destination);
+    }
+  }, [authLoading, appUser, router, pathname, validReturnTo]);
 
   const resetMessages = () => {
     setError(null);

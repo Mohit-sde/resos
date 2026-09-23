@@ -32,52 +32,52 @@ export function RestaurantLoginModal({
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setError(null);
-  setLoading(true);
-
-  try {
-    if (mode === "login") {
-      await signInWithEmailAndPassword(auth, email, password);
-    } else {
-      await createUserWithEmailAndPassword(auth, email, password);
-    }
-
-    // Get current user
-    const currentUser = auth.currentUser;
-    if (currentUser) {
-      // Create/update user doc in Firestore
-      await setUserDoc(currentUser.uid, {
-        email: currentUser.email || email,
-        role: "customer", // Default role for new users
-        associated_restaurants: [], // Will be updated when they order
-        created_at: Timestamp.now(),
-      });
-
-      // Create restaurant-specific session
-      restaurantSessionManager.setSession(
-        restaurant.restaurant_id,
-        currentUser.uid
-      );
-
-      toast.success(
-        mode === "login" ? "Logged in!" : "Account created & logged in!"
-      );
-      setEmail("");
-      setPassword("");
-      onSuccess();
-    }
-  } catch (err: any) {
-    const msg = err.message || "Authentication failed";
-    setError(msg);
-    toast.error(msg);
-  } finally {
-    setLoading(false);
-  }
-};
-
   const isSignup = mode === "signup";
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (mode === "login") {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        await createUserWithEmailAndPassword(auth, email, password);
+      }
+
+      // Get current user
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        // Create/update user doc in Firestore
+        await setUserDoc(currentUser.uid, {
+          email: currentUser.email || email,
+          role: "customer", // Default role for new users
+          associated_restaurants: [], // Will be updated when they order
+          created_at: Timestamp.now(),
+        });
+
+        // Create restaurant-specific session
+        restaurantSessionManager.setSession(
+          restaurant.restaurant_id,
+          currentUser.uid
+        );
+
+        toast.success(
+          mode === "login" ? "Logged in!" : "Account created & logged in!"
+        );
+        setEmail("");
+        setPassword("");
+        onSuccess();
+      }
+    } catch (err: any) {
+      const msg = err.message || "Authentication failed";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

@@ -7,6 +7,7 @@ build/
 dist/
 .next/
 out/
+__tests__/
 
 # Environment variables (Crucial for security!)
 .env
