@@ -1034,38 +1034,126 @@ export async function uploadProductImage(
 }
 
 // ─── Orders ────────────────────────────────────────────────────────────────────
-export async function getOrders(restaurantId: string): Promise<Order[]> {
-  const q = query(
-    collection(db, "restaurants", restaurantId, "orders"),
-    orderBy("created_at", "desc"),
-    limit(100)
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => d.data() as Order);
+export async function getRestaurantOrders(
+  restaurantId: string,
+  limitCount: number = 100
+): Promise<Order[]> {
+  try {
+    const q = query(
+      collection(db, "restaurants", restaurantId, "orders"),
+      orderBy("created_at", "desc"),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ ...d.data(), order_id: d.id } as Order));
+  } catch (error) {
+    console.error("Error fetching restaurant orders:", error);
+    return [];
+  }
 }
 
-export async function getCustomerOrders(restaurantId: string, customerId: string): Promise<Order[]> {
-  const q = query(
-    collection(db, "restaurants", restaurantId, "orders"),
-    where("customer_id", "==", customerId),
-    orderBy("created_at", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => d.data() as Order);
+/**
+ * Get customer's orders at a specific restaurant
+ * WHERE customer_id == customerId at restaurants/{restaurantId}/orders
+ */
+export async function getCustomerRestaurantOrders(
+  restaurantId: string,
+  customerId: string,
+  limitCount: number = 50
+): Promise<Order[]> {
+  try {
+    const q = query(
+      collection(db, "restaurants", restaurantId, "orders"),
+      where("customer_id", "==", customerId),
+      orderBy("created_at", "desc"),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ ...d.data(), order_id: d.id } as Order));
+  } catch (error) {
+    console.error("Error fetching customer orders:", error);
+    return [];
+  }
 }
 
+/**
+ * Get single order by ID (FASTEST)
+ * Direct document read: restaurants/{restaurantId}/orders/{orderId}
+ */
+export async function getOrderById(
+  restaurantId: string,
+  orderId: string
+): Promise<Order | null> {
+  try {
+    const docRef = doc(db, "restaurants", restaurantId, "orders", orderId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return { ...snap.data(), order_id: snap.id } as Order;
+  } catch (error) {
+    console.error("Error fetching order:", error);
+    return null;
+  }
+}
+
+/**
+ * Create a new order
+ * Data should NOT include: order_id, created_at, updated_at (auto-generated)
+ */
 export async function createOrder(
   restaurantId: string,
-  data: Omit<Order, "order_id" | "created_at">
+  data: Omit<Order, "order_id" | "created_at" | "updated_at">
 ): Promise<string> {
-  const colRef = collection(db, "restaurants", restaurantId, "orders");
-  const docRef = doc(colRef);
-  await addDoc(colRef, { ...data, order_id: docRef.id, created_at: serverTimestamp() });
-  return docRef.id;
+  try {
+    const colRef = collection(db, "restaurants", restaurantId, "orders");
+    const docRef = await addDoc(colRef, {
+      ...data,
+      created_at: serverTimestamp(),
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error("Error creating order:", error);
+    throw error;
+  }
 }
 
-export async function updateOrderStatus(restaurantId: string, orderId: string, status: OrderStatus) {
-  return updateDoc(doc(db, "restaurants", restaurantId, "orders", orderId), { status });
+/**
+ * Update order status
+ */
+export async function updateOrderStatus(
+  restaurantId: string,
+  orderId: string,
+  status: OrderStatus
+): Promise<void> {
+  try {
+    const docRef = doc(db, "restaurants", restaurantId, "orders", orderId);
+    await updateDoc(docRef, {
+      status,
+      updated_at: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error("Error updating order status:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update order
+ */
+export async function updateOrder(
+  restaurantId: string,
+  orderId: string,
+  updates: Partial<Omit<Order, "order_id" | "customer_id" | "created_at">>
+): Promise<void> {
+  try {
+    const docRef = doc(db, "restaurants", restaurantId, "orders", orderId);
+    await updateDoc(docRef, {
+      ...updates,
+      updated_at: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error("Error updating order:", error);
+    throw error;
+  }
 }
 
 // ─── Queries ───────────────────────────────────────────────────────────────────

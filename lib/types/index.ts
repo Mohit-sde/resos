@@ -57,15 +57,14 @@ export interface MenuProduct {
   updated_at?: Timestamp;
 }
 
-// ─── Order ────────────────────────────────────────────────────────────────────
+  // ─── Order ────────────────────────────────────────────────────────────────────
 export type OrderStatus =
   | "PLACED"
   | "PREPARING"
-  | "OUT_FOR_DELIVERY"
   | "DELIVERED"
   | "CANCELLED";
 
-export type OrderType = "DELIVERY" | "DINE_IN" | "TAKEAWAY";
+export type OrderType = "DINE_IN" | "TAKEAWAY"; // No DELIVERY
 
 export interface OrderItem {
   product_id: string;
@@ -77,7 +76,7 @@ export interface OrderItem {
 
 export interface OrderBilling {
   item_total: number;
-  delivery_charge: number;
+  delivery_charge: number; // Will be 0 for DINE_IN/TAKEAWAY
   taxes: number;
   grand_total: number;
 }
@@ -85,18 +84,15 @@ export interface OrderBilling {
 export interface Order {
   order_id: string;
   customer_id: string;
-  customer_email?: string;
-  order_number: number;
-  restaurant_id: string;
-  order_type: OrderType;
+  items: OrderItem[]; // ← Corrected from CartItem
+  billing: OrderBilling; // ← Use OrderBilling (not separate fields)
+  order_type: OrderType; // "DINE_IN" | "TAKEAWAY"
   status: OrderStatus;
-  items: OrderItem[];
-  billing: OrderBilling;
-  payment_method?: "UPI" | "CASH" | "CARD";
-  dine_in_date?: string; // ISO string for dine-in bookings
-  dine_in_guests?: number;
-  special_instructions?: string;
+  phone: string;
+  table_number?: string; // For DINE_IN orders only
+  instructions?: string;
   created_at: Timestamp;
+  updated_at?: Timestamp;
 }
 
 // ─── Query / Support Ticket ───────────────────────────────────────────────────
