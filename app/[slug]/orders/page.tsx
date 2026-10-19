@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { getRestaurantBySlug } from "@/lib/firebase/services";
-import { getCustomerRestaurantOrders } from "@/lib/firebase/services/orders";
+import { getCustomerRestaurantOrders } from "@/lib/firebase/services";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { PageLoader } from "@/components/ui/Loading";

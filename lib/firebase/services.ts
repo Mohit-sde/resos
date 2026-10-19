@@ -1061,19 +1061,15 @@ export async function getCustomerRestaurantOrders(
   customerId: string,
   limitCount: number = 50
 ): Promise<Order[]> {
-  try {
-    const q = query(
-      collection(db, "restaurants", restaurantId, "orders"),
-      where("customer_id", "==", customerId),
-      orderBy("created_at", "desc"),
-      limit(limitCount)
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ ...d.data(), order_id: d.id } as Order));
-  } catch (error) {
-    console.error("Error fetching customer orders:", error);
-    return [];
-  }
+  const q = query(
+    collection(db, "restaurants", restaurantId, "orders"),
+    where("customer_id", "==", customerId),
+    orderBy("created_at", "desc"),
+    limit(limitCount)
+  );
+  const snap = await getDocs(q);
+  console.log(`[orders] restaurant=${restaurantId} customer=${customerId} count=${snap.size}`);
+  return snap.docs.map((d) => ({ ...d.data(), order_id: d.id } as Order));
 }
 
 /**
